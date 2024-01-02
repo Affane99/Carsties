@@ -3,6 +3,8 @@ using AuctionService.DTOs;
 using AuctionService.Entities;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
+using Contracts;
+using MassTransit;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,11 +16,13 @@ public class AuctionsController : ControllerBase
 {
     private readonly AuctionDbContext _context;
     private readonly IMapper _mapper;
+    private readonly IPublishEndpoint _publishEndpoint;
 
-    public AuctionsController(AuctionDbContext context, IMapper mapper)
+    public AuctionsController(AuctionDbContext context, IMapper mapper, IPublishEndpoint publishEndpoint)
     {
         _context = context;
         _mapper = mapper;
+        _publishEndpoint = publishEndpoint;
     }
 
     [HttpGet]
@@ -26,77 +30,93 @@ public class AuctionsController : ControllerBase
     {
         var query = _context.Auctions.OrderBy(x => x.Item.Make).AsQueryable();
 
-        if(!string.IsNullOrEmpty(date))
+        if (!string.IsNullOrEmpty(date))
         {
             query = query.Where(x => x.UpdatedAt.CompareTo(DateTime.Parse(date).ToUniversalTime()) > 0);
         }
-        
+
         return await query.ProjectTo<AuctionDto>(_mapper.ConfigurationProvider).ToListAsync();
     }
 
-    [HttpGet("{id}")]
-    public async Task<ActionResult<AuctionDto>> GetAuctionById(Guid id)
-    {
-        var auction = await _context.Auctions
-        .Include(x => x.Item)
-        .FirstOrDefaultAsync(x => x.Id == id);
+    // [HttpGet("{id}")]
+    // public async Task<ActionResult<AuctionDto>> GetAuctionById(Guid id)
+    // {
+    //     var auction = await _context.Auctions
+    //     .Include(x => x.Item)
+    //     .FirstOrDefaultAsync(x => x.Id == id);
 
-        if (auction == null) return NotFound();
+    //     if (auction == null) return NotFound();
 
-        return _mapper.Map<AuctionDto>(auction);
-    }
+    //     return _mapper.Map<AuctionDto>(auction);
+    // }
 
-    [HttpPost]
-    public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto createAuctionDto)
-    {
-        var auction = _mapper.Map<Auction>(createAuctionDto);
-        // TODO: add current User as Seller
-        auction.Seller = "test";
+    // [HttpPost]
+    // public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto createAuctionDto)
+    // {
+    //     var auction = _mapper.Map<Auction>(createAuctionDto);
+    //     // TODO: add current User as Seller
+    //     auction.Seller = "test";
 
-        _context.Auctions.Add(auction);
-        var result = await _context.SaveChangesAsync() > 0;
+    //     _context.Auctions.Add(auction);
 
-        if (!result) return BadRequest("Could not save changes to the DB");
+    //     var newAuction = _mapper.Map<AuctionDto>(auction);
 
-        return CreatedAtAction(nameof(GetAuctionById), new { auction.Id }, _mapper.Map<AuctionDto>(auction));
-    }
+    //     await _publishEndpoint.Publish(_mapper.Map<AuctionCreated>(newAuction));
 
-    [HttpPut("{id}")]
-    public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto auctionDto)
-    {
-        var auction = await _context.Auctions.Include(x => x.Item)
-        .FirstOrDefaultAsync(x => x.Id.Equals(id));
+    //     var result = await _context.SaveChangesAsync() > 0;
 
-        //TODO: check seller == username
+    //     if (!result) return BadRequest("Could not save changes to the DB");
 
-        auction.Item.Make = auctionDto.Make ?? auction.Item.Make;
-        auction.Item.Model = auctionDto.Model ?? auction.Item.Model;
-        auction.Item.Color = auctionDto.Color ?? auction.Item.Color;
-        auction.Item.Mileage = auctionDto.Mileage ?? auction.Item.Mileage;
-        auction.Item.Year = auctionDto.Year ?? auction.Item.Year;
+    //     return CreatedAtAction(nameof(GetAuctionById), new { auction.Id }, _mapper.Map<AuctionDto>(auction));
+    // }
 
-        var result = await _context.SaveChangesAsync() > 0;
+    // [HttpPut("{id}")]
+    // public async Task<ActionResult> UpdateAuction(Guid id, UpdateAuctionDto auctionDto)
+    // {
+    //     var auction = await _context.Auctions.Include(x => x.Item)
+    //     .FirstOrDefaultAsync(x => x.Id.Equals(id));
 
-        if(result) return Ok();
+    //     //TODO: check seller == username
 
-        return BadRequest("Probleme saving changes");
-    }
+    //     auction.Item.Make = auctionDto.Make ?? auction.Item.Make;
+    //     auction.Item.Model = auctionDto.Model ?? auction.Item.Model;
+    //     auction.Item.Color = auctionDto.Color ?? auction.Item.Color;
+    //     auction.Item.Mileage = auctionDto.Mileage ?? auction.Item.Mileage;
+    //     auction.Item.Year = auctionDto.Year ?? auction.Item.Year;
 
-    [HttpDelete("{id}")]
-    public async Task<ActionResult> DeleteAuction(Guid id)
-    {
-        var auction = await _context.Auctions.FindAsync(id);
+    //     try
+    //     {
+    //         await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
+    //     }
+    //     catch (System.Exception e)
+    //     {
+    //         Console.WriteLine("error "+e);
+    //     }
 
-        if(auction == null) return NotFound();
+    //     var result = await _context.SaveChangesAsync() > 0;
 
-        //TODO: check seller == username
-        
-        _context.Auctions.Remove(auction);
+    //     if (result) return Ok();
 
-        var result = await _context.SaveChangesAsync() > 0;
-        
-        if(!result) return BadRequest("Could not update DB");
+    //     return BadRequest("Probleme saving changes");
+    // }
 
-        return Ok();
-    }
+    // [HttpDelete("{id}")]
+    // public async Task<ActionResult> DeleteAuction(Guid id)
+    // {
+    //     var auction = await _context.Auctions.FindAsync(id);
+
+    //     if (auction == null) return NotFound();
+
+    //     //TODO: check seller == username
+
+    //     _context.Auctions.Remove(auction);
+
+    //     await _publishEndpoint.Publish(new { Id = auction.Id.ToString() });
+
+    //     var result = await _context.SaveChangesAsync() > 0;
+
+    //     if (!result) return BadRequest("Could not update DB");
+
+    //     return Ok();
+    // }
 }
