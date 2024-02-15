@@ -136,53 +136,61 @@ public class AuctionsController : ControllerBase
     [HttpPost("upload")]
     public async Task<ActionResult> UploadImage()
     {
-        var file = Request.Form.Files[0];
-        var seller = User.Identity.Name;
-
-        if (file == null || file.Length == 0)
-        {
-            return BadRequest("Aucun fichier n'a été envoyé.");
-        }
-
-        var extention = _imageUploadManager.GetFileExtension(file.FileName);
-
-        if (!ImageExtensions.Contains(extention))
-            return BadRequest("Choisir un fichier image valide");
-
-        if (!Request.Form.TryGetValue("id", out var id) || !Guid.TryParse(id, out var auctionId))
-        {
-            return BadRequest("The auction id is required");
-        }
-
-
-        var auction = await _context.Auctions.Include(x => x.Item).FirstAsync(x => x.Id == auctionId);
-
-        if (auction == null)
-            return NotFound("the auction was not found");
-
-        if (auction.Seller != seller)
-            return Forbid();
-
-        var imageUrl = await _imageUploadManager.UploadImageAsync(file.OpenReadStream(), id, extention);
-
-        auction.Item.ImageUrl = imageUrl;
-        auction.UpdatedAt = DateTime.UtcNow;
-
         try
         {
-            await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
+            var file = Request.Form.Files[0];
+            var seller = User.Identity.Name;
+
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest("Aucun fichier n'a été envoyé.");
+            }
+
+            var extention = _imageUploadManager.GetFileExtension(file.FileName);
+
+            if (!ImageExtensions.Contains(extention))
+                return BadRequest("Choisir un fichier image valide");
+
+            if (!Request.Form.TryGetValue("id", out var id) || !Guid.TryParse(id, out var auctionId))
+            {
+                return BadRequest("The auction id is required");
+            }
+
+
+            var auction = await _context.Auctions.Include(x => x.Item).FirstAsync(x => x.Id == auctionId);
+
+            if (auction == null)
+                return NotFound("the auction was not found");
+
+            if (auction.Seller != seller)
+                return Forbid();
+
+            var imageUrl = await _imageUploadManager.UploadImageAsync(file.OpenReadStream(), id, extention);
+
+            auction.Item.ImageUrl = imageUrl;
+            auction.UpdatedAt = DateTime.UtcNow;
+
+            try
+            {
+                await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
+            }
+            catch (System.Exception e)
+            {
+                Console.BackgroundColor = ConsoleColor.Red;
+                Console.WriteLine("error " + e);
+                Console.BackgroundColor = ConsoleColor.Blue;
+            }
+
+            var result = await _context.SaveChangesAsync() > 0;
+
+            if (!result) return BadRequest("Error occured");
+
+            return Ok(new { imageUrl });
         }
-        catch (System.Exception e)
+        catch (System.Exception _e)
         {
-            Console.BackgroundColor = ConsoleColor.Red;
-            Console.WriteLine("error " + e);
-            Console.BackgroundColor = ConsoleColor.Blue;
+            Console.WriteLine($"Error Updload Image: {_e.Message}");
+            throw;
         }
-
-        var result = await _context.SaveChangesAsync() > 0;
-
-        if (!result) return BadRequest("Error occured");
-
-        return Ok(new { imageUrl });
     }
 }

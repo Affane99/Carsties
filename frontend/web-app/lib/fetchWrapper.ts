@@ -48,6 +48,19 @@ async function del(url: string) {
     return await handleResponse(response);
 }
 
+async function uploadImage(url: string, data: FormData) {
+    const headers = await getHeaders();
+    delete headers['content-type'];
+    const requestOptions = {
+        method: "POST",
+        headers: headers,
+        body: data
+    }
+    const response = await fetch(path.join(baseUrl, url), requestOptions);
+
+    return await handleResponse(response);
+}
+
 async function getHeaders() {
     const token = await getTokenWorkaround();
     const headers: any = { 'content-type': 'application/json' };
@@ -59,7 +72,12 @@ async function getHeaders() {
 
 async function handleResponse(response: Response) {
     const text = await response.text();
-    const data = text && JSON.parse(text);
+    let data:any;
+    try {
+        data = text && JSON.parse(text);
+    } catch (error) {
+        data = text && text;
+    }
 
     if (response.ok) {
         return data || response.statusText;
@@ -70,12 +88,13 @@ async function handleResponse(response: Response) {
         message: response.statusText
     }
 
-    return {error};
+    return { error };
 }
 
 export const fetchWrapper = {
     get,
     post,
     put,
-    del
+    del,
+    uploadImage
 }

@@ -1,13 +1,14 @@
 'use client'
 import { Button } from 'flowbite-react';
-import React, { useEffect } from 'react'
-import { FieldValues, useForm } from 'react-hook-form'
+import React, { useEffect, useState } from 'react'
+import { FieldValues, useForm, useController } from 'react-hook-form'
 import Input from '../components/Input';
 import DateInput from '../components/DateInput';
-import { createAuction, updateAuction } from '../actions/auctionActions';
+import { createAuction, updateAuction, uploadImage } from '../actions/auctionActions';
 import { usePathname, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Auction } from '@/types';
+import ImageInput from '../components/ImageInput';
 
 
 type Props = {
@@ -21,23 +22,54 @@ export default function AuctionForm({ auction }: Props) {
         setFocus,
         control,
         reset,
+        setValue,
         formState: { isSubmitting, isValid }
     } = useForm({
         mode: "onTouched"
     });
 
+
     const router = useRouter();
     const pathname = usePathname();
+    const [isDisabled,setIsDisabled] = useState(false)
 
     useEffect(() => {
         if (auction) {
-            const { make, model, color, mileage, year } = auction;
-            reset({ make, model, color, mileage, year });
+            const { make, model, color, mileage, year, imageUrl } = auction;
+            reset({ make, model, color, mileage, year, imageUrl });
         }
         setFocus('make');
     }, [setFocus]);
 
+    async function onImageChange(event: React.ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0];
+        const path = event.target.value;
+        const formData = new FormData();
+        
+        formData.append('file', file!,path);
+        formData.append('id', auction?.id as string);
+
+        try {
+            const res = await uploadImage(formData);
+
+            if (res.error) throw res.error;
+
+            setValue('imageUrl',res.imageUrl,{
+                shouldDirty:true,
+                shouldValidate:true,
+                shouldTouch:true
+            });
+
+            setIsDisabled(true);
+            toast.success("L'image a été mise à jour avec succès");
+
+        } catch (error:any) {
+            toast.error(`${error.status} ${error.message}`);
+        }
+    }
+
     async function onSubmit(data: FieldValues) {
+        delete data?.file;
         try {
             let id = "";
             let res;
@@ -54,7 +86,6 @@ export default function AuctionForm({ auction }: Props) {
                 throw res.error;
             }
             router.push(`/auctions/details/${id}`);
-            
         } catch (error: any) {
             toast.error(`${error.status} ${error.message}`);
         }
@@ -85,6 +116,23 @@ export default function AuctionForm({ auction }: Props) {
                     control={control} rules={{ required: "Mileage is required" }}
                 />
             </div>
+            {pathname.includes('/auctions/update/')  &&
+                <>
+                    <div className='grid grid-cols-2 gap-3'>
+                        <ImageInput
+                            name='file'
+                            control={control}
+                            onChange={onImageChange}
+                        />
+                        <Input
+                            label='Image URL' name='imageUrl'
+                            control={control} 
+                            rules={{ required: "Image URL is required" }}
+                            disabled = {isDisabled}
+                        />
+                    </div>
+                </>
+            }
 
             {pathname === '/auctions/create' &&
                 <>
