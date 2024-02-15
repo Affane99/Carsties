@@ -18,12 +18,20 @@ public class AuctionsController : ControllerBase
     private readonly AuctionDbContext _context;
     private readonly IMapper _mapper;
     private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IImageUploadManager _imageUploadManager;
+    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif", ".webp", ".svg", ".ico", };
 
-    public AuctionsController(AuctionDbContext context, IMapper mapper, IPublishEndpoint publishEndpoint)
+    public AuctionsController(
+        AuctionDbContext context,
+        IMapper mapper,
+        IPublishEndpoint publishEndpoint,
+        IImageUploadManager imageUploadManager
+    )
     {
         _context = context;
         _mapper = mapper;
         _publishEndpoint = publishEndpoint;
+        _imageUploadManager = imageUploadManager;
     }
 
     [HttpGet]
@@ -56,7 +64,7 @@ public class AuctionsController : ControllerBase
     public async Task<ActionResult<AuctionDto>> CreateAuction(CreateAuctionDto createAuctionDto)
     {
         var auction = _mapper.Map<Auction>(createAuctionDto);
-        
+
         auction.Seller = User.Identity.Name;
 
         _context.Auctions.Add(auction);
@@ -79,7 +87,7 @@ public class AuctionsController : ControllerBase
         var auction = await _context.Auctions.Include(x => x.Item)
         .FirstOrDefaultAsync(x => x.Id.Equals(id));
 
-        if(auction.Seller != User.Identity.Name) return Forbid();
+        if (auction.Seller != User.Identity.Name) return Forbid();
 
         auction.Item.Make = auctionDto.Make ?? auction.Item.Make;
         auction.Item.Model = auctionDto.Model ?? auction.Item.Model;
@@ -93,7 +101,7 @@ public class AuctionsController : ControllerBase
         }
         catch (System.Exception e)
         {
-            Console.WriteLine("error "+e);
+            Console.WriteLine("error " + e);
         }
 
         var result = await _context.SaveChangesAsync() > 0;
@@ -111,16 +119,70 @@ public class AuctionsController : ControllerBase
 
         if (auction == null) return NotFound();
 
-        if(auction.Seller != User.Identity.Name) return Forbid();
+        if (auction.Seller != User.Identity.Name) return Forbid();
 
         _context.Auctions.Remove(auction);
 
-        await _publishEndpoint.Publish(new AuctionDeleted{ Id = auction.Id.ToString() });
+        await _publishEndpoint.Publish(new AuctionDeleted { Id = auction.Id.ToString() });
 
         var result = await _context.SaveChangesAsync() > 0;
 
         if (!result) return BadRequest("Could not update DB");
 
         return Ok();
+    }
+
+    [Authorize]
+    [HttpPost("upload")]
+    public async Task<ActionResult> UploadImage()
+    {
+        var file = Request.Form.Files[0];
+        var seller = User.Identity.Name;
+
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest("Aucun fichier n'a été envoyé.");
+        }
+
+        var extention = _imageUploadManager.GetFileExtension(file.FileName);
+
+        if (!ImageExtensions.Contains(extention))
+            return BadRequest("Choisir un fichier image valide");
+
+        if (!Request.Form.TryGetValue("id", out var id) || !Guid.TryParse(id, out var auctionId))
+        {
+            return BadRequest("The auction id is required");
+        }
+
+
+        var auction = await _context.Auctions.Include(x => x.Item).FirstAsync(x => x.Id == auctionId);
+
+        if (auction == null)
+            return NotFound("the auction was not found");
+
+        if (auction.Seller != seller)
+            return Forbid();
+
+        var imageUrl = await _imageUploadManager.UploadImageAsync(file.OpenReadStream(), id, extention);
+
+        auction.Item.ImageUrl = imageUrl;
+        auction.UpdatedAt = DateTime.UtcNow;
+
+        try
+        {
+            await _publishEndpoint.Publish(_mapper.Map<AuctionUpdated>(auction));
+        }
+        catch (System.Exception e)
+        {
+            Console.BackgroundColor = ConsoleColor.Red;
+            Console.WriteLine("error " + e);
+            Console.BackgroundColor = ConsoleColor.Blue;
+        }
+
+        var result = await _context.SaveChangesAsync() > 0;
+
+        if (!result) return BadRequest("Error occured");
+
+        return Ok(new { imageUrl });
     }
 }
