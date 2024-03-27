@@ -32,13 +32,7 @@ export default function Search() {
                 type="text"
                 placeholder='Search for cars by make, color or model'
                 className='
-                    flex-grow
-                    pl-5
-                    bg-transparent
-                    border-none
-                    focus:outline-none
-                    focus:border-none
-                    focus:ring-0
+                    input-custom
                     text-sm
                     text-gray-600
                 '
